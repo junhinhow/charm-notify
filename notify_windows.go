@@ -3,43 +3,56 @@
 package notify
 
 import (
+	"errors"
 	"fmt"
-	"os/exec"
-	"strings"
 )
 
-// sendPlatform envia notificacao no Windows.
-// Tenta BurntToast (PowerShell) primeiro, fallback para msg.exe.
+// sendPlatform envia a notificação no Windows.
+//
+// Tenta primeiro o módulo BurntToast (PowerShell) e, se ele não estiver
+// disponível ou falhar, usa o msg.exe. Quando os dois caminhos falham, os
+// dois erros são devolvidos juntos para que a causa real (por exemplo, o
+// BurntToast não instalado) não seja perdida.
 func sendPlatform(n *Notification) error {
-	err := sendBurntToast(n)
-	if err != nil {
-		return sendMsg(n)
+	errToast := sendBurntToast(n)
+	if errToast == nil {
+		return nil
 	}
-	return nil
+
+	errMsg := sendMsg(n)
+	if errMsg == nil {
+		return nil
+	}
+
+	return errors.Join(
+		fmt.Errorf("notify: falha ao enviar a notificação via BurntToast: %w", errToast),
+		fmt.Errorf("notify: falha ao enviar a notificação via msg.exe: %w", errMsg),
+	)
 }
 
-// sendBurntToast usa o modulo BurntToast do PowerShell.
+// sendBurntToast usa o módulo BurntToast do PowerShell.
+//
+// São respeitados o ícone (-Icon) e o som (-Sound). O módulo não oferece
+// prazo de expiração, portanto Timeout só é respeitado no fallback msg.exe.
 func sendBurntToast(n *Notification) error {
-	// Escapa aspas simples duplicando-as (padrao PowerShell)
-	title := strings.ReplaceAll(n.Title, "'", "''")
-	message := strings.ReplaceAll(n.Message, "'", "''")
-
-	cmd := fmt.Sprintf("New-BurntToastNotification -Text '%s','%s'", title, message)
-
-	if n.Sound {
-		cmd += " -Sound Default"
+	cmd, err := burntToastCommand(n)
+	if err != nil {
+		return err
 	}
 
-	return exec.Command("powershell", "-Command", cmd).Run()
+	return runCommand("powershell", "-NoProfile", "-NonInteractive", "-Command", cmd)
 }
 
-// sendMsg usa msg.exe como fallback basico.
+// sendMsg usa o msg.exe como fallback básico.
+//
+// O msg.exe não aceita ícones, portanto Icon é ignorado neste caminho. O
+// prazo de expiração é informado em segundos inteiros (arredondado para
+// cima, com no mínimo 1 segundo).
 func sendMsg(n *Notification) error {
-	timeout := int(n.Timeout.Seconds())
-	if timeout < 1 {
-		timeout = 5
+	args, err := msgArgs(n)
+	if err != nil {
+		return err
 	}
 
-	text := fmt.Sprintf("%s: %s", n.Title, n.Message)
-	return exec.Command("msg", "*", fmt.Sprintf("/TIME:%d", timeout), text).Run()
+	return runCommand("msg", args...)
 }
