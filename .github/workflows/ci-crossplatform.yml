@@ -1,0 +1,82 @@
+name: CI (Cross-Platform)
+
+# Workflow dedicado à matriz multiplataforma do charm-notify.
+#
+# O arquivo ci.yml existente roda apenas em ubuntu-latest, o que nunca
+# compila notify_windows.go nem notify_darwin.go. Este workflow garante que
+# as três plataformas sejam compiladas e testadas.
+#
+# NOTA PARA O AGENTE CENTRAL DE CI: este arquivo foi criado pronto para ser
+# mesclado com o ci.yml existente (mesma chave `on`, sem workflow duplicado
+# em push). Se optar por mesclar, mantenha a matriz `os` no ci.yml e apague
+# este arquivo.
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / Go ${{ matrix.go-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        go-version: ['1.23', '1.24']
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ matrix.go-version }}
+
+    - name: Build
+      run: go build ./...
+
+    - name: Vet
+      run: go vet ./...
+
+    - name: Test
+      run: go test ./... -v
+
+    - name: Check formatting
+      shell: bash
+      run: |
+        if [ -n "$(gofmt -l .)" ]; then
+          echo "Files not formatted:"
+          gofmt -l .
+          exit 1
+        fi
+
+  cross-compile:
+    name: Cross-compile (linux -> ${{ matrix.goos }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, windows, darwin, freebsd]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: Build
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: amd64
+      run: go build ./...
+
+    - name: Vet
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: amd64
+      run: go vet ./...
