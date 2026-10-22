@@ -10,49 +10,14 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build, vet, test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+  ci:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Verify gofmt
-        shell: bash
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "The following files are not gofmt-compliant:"
-            echo "$unformatted"
-            exit 1
-          fi
-
-      - name: Build
-        run: go build ./...
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: go test ./... -race -coverprofile=coverage.out -covermode=atomic
-
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ matrix.os }}
-          path: coverage.out
-          if-no-files-found: ignore
+    uses: junhinhow/charm-suite/.github/workflows/go-ci.yml@main
+    with:
+      os: ${{ matrix.os }}
 
   cross-compile:
     name: Cross-compile (GOOS=${{ matrix.goos }})
@@ -64,35 +29,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
-
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
           CGO_ENABLED: 0
         run: go build ./...
-
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.64.8
-          args: --timeout=5m
-        continue-on-error: true
